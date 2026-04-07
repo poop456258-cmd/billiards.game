@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>撞球大師：正規賽則版</title>
+    <style>
+        :root { --table-green: #145a32; --wood: #3e2723; }
+        body { 
+            margin: 0; background: #121212; color: white; 
+            font-family: sans-serif; display: flex; flex-direction: column; 
+            align-items: center; height: 100vh; overflow: hidden; touch-action: none; 
+        }
+        #main-menu, #win-screen {
+            position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.9);
+            display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100;
+        }
+        .btn { background: #27ae60; border: none; padding: 18px 40px; margin: 12px; color: white; font-size: 1.3rem; border-radius: 40px; width: 220px; font-weight: bold; cursor: pointer; }
+        #game-ui { position: relative; width: 100vw; max-width: 400px; height: 100%; display: flex; flex-direction: column; }
+        canvas { background: var(--table-green); border: 10px solid var(--wood); border-radius: 15px; width: 100%; height: auto; aspect-ratio: 2 / 3; }
+        .hud { padding: 10px; display: flex; justify-content: space-between; background: #222; font-size: 0.9rem; }
+        #msg-bar { color: #f1c40f; text-align: center; padding: 5px; background: #333; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+
+    <div id="main-menu">
+        <h1 style="color:#f1c40f">🎱 BILLIARDS PRO</h1>
+        <button class="btn" onclick="startGame('9ball')">9 號球模式</button>
+        <button class="btn" onclick="startGame('8ball')">8 號球模式</button>
+    </div>
+
+    <div id="win-screen" style="display:none;">
+        <h2 id="win-text">YOU WIN!</h2>
+        <button class="btn" onclick="location.reload()">回主選單</button>
+    </div>
+
+    <div id="game-ui" style="display:none;">
+        <div class="hud">
+            <div>模式: <span id="mode-label"></span></div>
+            <div>目標: <span id="target-label">--</span></div>
+        </div>
+        <div id="msg-bar">請擊球</div>
+        <canvas id="poolCanvas"></canvas>
+    </div>
+
+<script>
+    const canvas = document.getElementById('poolCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = 400, H = 600, BALL_R = 10;
+    
+    const BALL_COLORS = {
+        0: "white", 1: "yellow", 2: "blue", 3: "red", 4: "purple", 5: "orange", 6: "green", 7: "maroon",
+        8: "black", 9: "yellow", 10: "blue", 11: "red", 12: "purple", 13: "orange", 14: "green", 15: "maroon"
+    };
+
+    let balls = [];
+    let isDragging = false;
+    let dragStart = { x: 0, y: 0 };
+    let gameMode = "";
+    let firstBallHit = null; // 記錄白球每一桿擊中的第一顆球
+    const POCKETS = [[20,20], [W/2,15], [W-20,20], [20,H-20], [W/2,H-15], [W-20,H-20]];
+
+    function startGame(mode) {
+        gameMode = mode;
+        document.getElementById('main-menu').style.display = 'none';
+        document.getElementById('game-ui').style.display = 'flex';
+        document.getElementById('mode-label').innerText = mode.toUpperCase();
+        canvas.width = W; canvas.height = H;
+        initTable(mode);
+        requestAnimationFrame(gameLoop);
+    }
+
+    function initTable(mode) {
+        balls = [];
+        balls.push({ x: W/2, y: H*0.75, vx: 0, vy: 0, color: "white", id: 0 });
+        const startX = W/2, startY = H*0.25;
+
+        if (mode === '9ball') {
+            const layout = [{r:0,c:0},{r:1,c:-0.5},{r:1,c:0.5},{r:2,c:-1},{r:2,c:0},{r:2,c:1},{r:3,c:-0.5},{r:3,c:0.5},{r:4,c:0}];
+            layout.forEach((pos, i) => {
+                let id = (i === 4) ? 9 : (i < 4 ? i+1 : i+2);
+                if (id > 9) id = i+1;
+                balls.push({ x: startX + pos.c*22, y: startY + pos.r*20, vx: 0, vy: 0, color: BALL_COLORS[id], id: id });
+            });
+        } else {
+            let count = 1;
+            for (let r = 0; r < 5; r++) {
+                for (let c = 0; c <= r; c++) {
+                    let id = (r===2 && c===1) ? 8 : (count===8 ? 15 : count);
+                    balls.push({ x: (startX - r*11) + c*22, y: startY + r*20, vx: 0, vy: 0, color: BALL_COLORS[id], id: id });
+                    count++;
+                }
+            }
+        }
+    }
+
+    function gameLoop() {
+        ctx.clearRect(0, 0, W, H);
+        drawTable();
+        updatePhysics();
+        checkPockets();
+        drawBalls();
+        if (isDragging) drawUI();
+        requestAnimationFrame(gameLoop);
+    }
+
+    function drawTable() {
+        ctx.fillStyle = '#111';
+        POCKETS.forEach(p => { ctx.beginPath(); ctx.arc(p[0], p[1], 22, 0, Math.PI*2); ctx.fill(); });
+    }
+
+    function updatePhysics() {
+        let moving = false;
+        balls.forEach(b => {
+            b.x += b.vx; b.y += b.vy;
+            b.vx *= 0.985; b.vy *= 0.985;
+            if (Math.abs(b.vx) < 0.1) b.vx = 0;
+            if (Math.abs(b.vy) < 0.1) b.vy = 0;
+            if (b.vx !== 0 || b.vy !== 0) moving = true;
+            if (b.x < 15 || b.x > W-15) b.vx *= -0.8;
+            if (b.y < 15 || b.y > H-15) b.vy *= -0.8;
+        });
+
+        for (let i = 0; i < balls.length; i++) {
+            for (let j = i + 1; j < balls.length; j++) {
+                let b1 = balls[i], b2 = balls[j];
+                let dist = Math.hypot(b1.x - b2.x, b1.y - b2.y);
+                if (dist < BALL_R * 2) {
+                    if (b1.id === 0 && firstBallHit === null) firstBallHit = b2;
+                    if (b2.id === 0 && firstBallHit === null) firstBallHit = b1;
+
+                    let angle = Math.atan2(b2.y - b1.y, b2.x - b1.x);
+                    let speed = Math.hypot(b1.vx, b1.vy) + Math.hypot(b2.vx, b2.vy);
+                    b1.vx = -Math.cos(angle) * speed * 0.5; b1.vy = -Math.sin(angle) * speed * 0.5;
+                    b2.vx = Math.cos(angle) * speed * 0.5; b2.vy = Math.sin(angle) * speed * 0.5;
+                }
+            }
+        }
+        updateTargetInfo(moving);
+    }
+
+    function updateTargetInfo(moving) {
+        if (moving) {
+            document.getElementById('msg-bar').innerText = "滾動中...";
+        } else {
+            if (gameMode === '9ball') {
+                let minVal = Math.min(...balls.filter(b => b.id > 0).map(b => b.id));
+                document.getElementById('target-label').innerText = minVal + " 號球";
+                document.getElementById('msg-bar').innerText = "必須先撞擊 " + minVal + " 號球";
+            } else {
+                document.getElementById('target-label').innerText = "單/雙色球";
+                document.getElementById('msg-bar').innerText = "先碰到自己的球再進 8 號即可獲勝";
+            }
+        }
+    }
+
+    function checkPockets() {
+        for (let i = balls.length - 1; i >= 0; i--) {
+            let b = balls[i];
+            POCKETS.forEach(p => {
+                if (Math.hypot(b.x - p[0], b.y - p[1]) < 20) {
+                    if (b.id === 0) {

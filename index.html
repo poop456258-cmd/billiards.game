@@ -161,3 +161,91 @@
             POCKETS.forEach(p => {
                 if (Math.hypot(b.x - p[0], b.y - p[1]) < 20) {
                     if (b.id === 0) {
+                        resetCueBall();
+                    } else if (gameMode === '9ball' && b.id === 9) {
+                        if (firstBallHit && firstBallHit.id === getMinId()) handleWin("9 號球進洞！");
+                        else balls.splice(i, 1); // 雖然進了但沒撞對，這裡簡化為繼續玩
+                    } else if (gameMode === '8ball' && b.id === 8) {
+                        if (firstBallHit && firstBallHit.id !== 8) handleWin("8 號球合法進洞！");
+                        else { alert("犯規！直接撞 8 號球不算。"); b.x = W/2; b.y = H*0.25; b.vx = 0; b.vy = 0; }
+                    } else {
+                        balls.splice(i, 1);
+                    }
+                }
+            });
+        }
+    }
+
+    function getMinId() { return Math.min(...balls.filter(b => b.id > 0).map(b => b.id)); }
+
+    function resetCueBall() {
+        let cue = balls.find(b => b.id === 0);
+        cue.x = W/2; cue.y = H*0.75; cue.vx = 0; cue.vy = 0;
+        alert("母球洗袋！獲得自由球");
+    }
+
+    function handleWin(text) {
+        document.getElementById('game-ui').style.display = 'none';
+        document.getElementById('win-screen').style.display = 'flex';
+        document.getElementById('win-text').innerText = text;
+    }
+
+    function drawBalls() {
+        balls.forEach(b => {
+            ctx.fillStyle = b.color;
+            ctx.beginPath(); ctx.arc(b.x, b.y, BALL_R, 0, Math.PI*2); ctx.fill();
+            if (b.id !== 0) {
+                if (b.id > 8) {
+                    ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(b.x, b.y, BALL_R-3, 0, Math.PI*2); ctx.fill();
+                }
+                ctx.fillStyle = (b.id >= 8) ? "black" : "white";
+                ctx.font = "bold 9px Arial"; ctx.textAlign = "center";
+                ctx.fillText(b.id, b.x, b.y + 3);
+            }
+        });
+    }
+
+    function drawUI() {
+        const b = balls[0];
+        ctx.strokeStyle = "rgba(255,255,255,0.4)";
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath(); ctx.moveTo(b.x, b.y);
+        ctx.lineTo(b.x - (dragStart.x - b.x), b.y - (dragStart.y - b.y));
+        ctx.stroke(); ctx.setLineDash([]);
+        
+        // 力度條
+        const dist = Math.hypot(dragStart.x - b.x, dragStart.y - b.y);
+        const ratio = Math.min(dist / 150, 1);
+        ctx.fillStyle = `rgb(${ratio*255}, ${255-ratio*255}, 0)`;
+        ctx.fillRect(W - 20, H - 20, 10, -ratio * 100);
+    }
+
+    canvas.addEventListener('mousedown', e => onDown(e.clientX, e.clientY));
+    window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup', onUp);
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); onDown(e.touches[0].clientX, e.touches[0].clientY); });
+    canvas.addEventListener('touchmove', e => onMove(e.touches[0].clientX, e.touches[0].clientY));
+    canvas.addEventListener('touchend', onUp);
+
+    function onDown(ex, ey) {
+        const rect = canvas.getBoundingClientRect();
+        const mx = (ex - rect.left) * (W/rect.width), my = (ey - rect.top) * (H/rect.height);
+        if (Math.hypot(mx - balls[0].x, my - balls[0].y) < 40) {
+            isDragging = true; dragStart = {x: mx, y: my}; firstBallHit = null;
+        }
+    }
+    function onMove(ex, ey) {
+        if (!isDragging) return;
+        const rect = canvas.getBoundingClientRect();
+        dragStart.x = (ex - rect.left) * (W/rect.width);
+        dragStart.y = (ey - rect.top) * (H/rect.height);
+    }
+    function onUp() {
+        if (!isDragging) return;
+        balls[0].vx = (balls[0].x - dragStart.x) * 0.13;
+        balls[0].vy = (balls[0].y - dragStart.y) * 0.13;
+        isDragging = false;
+    }
+</script>
+</body>
+</html>
